@@ -164,7 +164,7 @@ CreatePlayerMenu(client) {
 	new x, time, String:sUserid[5], String:tempFormat[128], players;
 	for(new i = 0; i < MAXPLAYERS; i++) {
 		x = FindUser(tempActionVar[i]);
-		if(x && IsClientInGame(x) && CheckCommandAccess(x, "sm_afkmenu", ADMFLAG_KICK)) {
+		if(x && IsClientInGame(x) && !CheckCommandAccess(x, "sm_afkmenu", ADMFLAG_KICK)) {
 			time = RoundToNearest(GetEngineTime() - g_fLastAction[x]);
 			if(time >= g_iSecGone[client]) {
 				GetTimeFromStamp(time, tempFormat, sizeof(tempFormat));
