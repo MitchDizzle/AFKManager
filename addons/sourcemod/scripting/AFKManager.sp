@@ -7,16 +7,23 @@
 #define PLUGIN_NAME "AFKManager"
 #define PLUGIN_VERSION "1.0.0"
 #define DEFAFKTIME 60
+#define WARNTIME 300.0
 
 // ====[ CONFIG ]==============================================================
 
 // ====[ PLYR VARS ]===========================================================
 new Float:g_fLastAction[MAXPLAYERS+1] = {0.0, ...};
 new bool:g_bLastAction[MAXPLAYERS+1] = {false, ...}; //Used in menu sorting.
+
+//Player options & Menu variables
 new g_iSecGone[MAXPLAYERS+1] = {DEFAFKTIME, ...};
 new SortOrder:g_SortOrder[MAXPLAYERS+1] = {Sort_Ascending, ...};
 new g_targetPlayer[MAXPLAYERS+1] = {-1, ...};
+
+// Used for the Warn System
 new bool:g_bWarningPlayer[MAXPLAYERS+1] = {false, ...}; //Used in menu sorting.
+new Float:g_tWarningPlayer[MAXPLAYERS+1] = {0.0, ...};
+
 
 // ====[ PLUGIN ]==============================================================
 public Plugin:myinfo = {
@@ -31,10 +38,11 @@ public OnPluginStart() {
 	CreateConVar("sm_afkmanager_version", PLUGIN_VERSION, PLUGIN_NAME, FCVAR_PLUGIN | FCVAR_SPONLY | FCVAR_DONTRECORD | FCVAR_NOTIFY);
 	AddCommandListener(CommandListener);
 	RegAdminCmd("sm_afkmenu", Cmd_AFKMenu, ADMFLAG_KICK);
+
 	new Float:eTime = GetEngineTime();
 	for(new i=1; i<=MaxClients; i++) {
 		if(IsClientInGame(i)) {
-			g_fLastAction[client] = eTime;
+			g_fLastAction[i] = eTime;
 		}
 	}
 }
@@ -52,12 +60,13 @@ public OnClientDisconnect(client) {
 	g_iSecGone[client] = DEFAFKTIME;
 	g_SortOrder[client] = Sort_Ascending;
 	g_targetPlayer[client] = -1;
+	g_bWarningPlayer[client] = false;
 }
 
 
 public Action:CommandListener(client, const String:cmd[], args) {
 	if(StrContains(cmd, "say", false) != -1 ) {
-		g_fLastAction[client] = GetEngineTime();
+		PlayerActioned(client);
 	}
 	/*if(!StrEqual(cmd, "wait", false) &&
 		StrContains(cmd, "+", false) == -1 &&
@@ -71,7 +80,15 @@ public Action:OnPlayerRunCmd(client, &buttons, &impulse, Float:vel[3], Float:ang
 	static oButtons[MAXPLAYERS+1];
 	if(oButtons[client] != buttons) {
 		oButtons[client] = buttons;
-		g_fLastAction[client] = GetEngineTime();
+		PlayerActioned(client);
+	}
+}
+
+PlayerActioned(client) {
+	g_fLastAction[client] = GetEngineTime();
+	if(g_bWarningPlayer[client]) {
+		g_bWarningPlayer[client] = false;
+		PrintToChat(client, "[AFK] You are no longer marked as afk.");
 	}
 }
 // ====[ COMMANDS ]==============================================================
@@ -171,7 +188,7 @@ CreatePlayerMenu(client) {
 	SetMenuTitle(menu, "AFK Manager | Players:");
 	
 	AddMenuItem(menu, "refresh", "Refresh Menu");
-	AddMenuItem(menu, "all", "All AFKers\n-----------");
+	AddMenuItem(menu, "all", "All AFKers\n--Players--");
 	new Float:tempActionVar[MAXPLAYERS+1];
 	for(new i = 0; i <= MAXPLAYERS; i++) {
 		g_bLastAction[i] = false;
@@ -225,14 +242,20 @@ public Menu_Players(Handle:main, MenuAction:action, client, param2) {
 	return;
 }
 
+#define AFK_WARN 0
+#define AFK_SPEC 1
+#define AFK_KICK 2
 CreatePunishMenu(client) {
 	decl String:tempFormat[64];
 	GetTimeFromStamp(g_iSecGone[client], tempFormat, sizeof(tempFormat));
 	new Handle:menu = CreateMenu(Menu_Punish, MENU_ACTIONS_DEFAULT);
-	SetMenuTitle(menu, "AFK Manager | Punish: %N", GetClientOfUserId(g_targetPlayer[client]));
-	AddMenuItem(menu, "warn", "Warn Player", (g_bWarningPlayer[target]) ? ITEMDRAW_DISABLED : ITEMDRAW_DEFAULT);
-	AddMenuItem(menu, "spec", "Move To Spectator");
-	AddMenuItem(menu, "kick", "Kick Player");
+	
+	new target = GetClientOfUserId(g_targetPlayer[client]);
+	if(g_targetPlayer[client] == 1337) SetMenuTitle(menu, "AFK Manager | Punish All AFKers");
+	else SetMenuTitle(menu, "AFK Manager | Punish: %N", target);
+	AddMenuItem(menu, "0", "Warn Player", (g_bWarningPlayer[target] && g_targetPlayer[client] != 1337) ? ITEMDRAW_DISABLED : ITEMDRAW_DEFAULT);
+	AddMenuItem(menu, "1", "Move To Spectator");
+	AddMenuItem(menu, "2", "Kick Player");
 
 	SetMenuPagination(menu, MENU_NO_PAGINATION);
 	SetMenuExitButton(menu, true);
@@ -249,17 +272,16 @@ public Menu_Punish(Handle:main, MenuAction:action, client, param2) {
 		{
 			new String:info[32];
 			GetMenuItem(main, param2, info, sizeof(info));
+			new iInfo = StringToInt(info);
 			new target = GetClientOfUserId(g_targetPlayer[client]);
 			if(target) {
-				if (StrEqual(info,"spec")) {
-					ChangeClientTeam(target, 1);
-				} else if (StrEqual(info,"kick")) {
-					KickClient(target, "AFK For Too Long");
-				} else if (StrEqual(info,"warn")) {
-					g_bWarningPlayer[target] = true;
-					g_tWarningPlayer[target] = GetEngineTime();
-					CreateTimer(2.0, Timer_WarnRepeat, StringToInt(info), TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);
-					PrintToChat(target, "[AFK] You have been marked as AFK, type !unafk in chat to continue playing.");
+				PunishPlayer(target, iInfo);
+			} else if(g_targetPlayer[client] == 1337) {
+				new Float:time = GetEngineTime();
+				for(new i=1; i<=MaxClients; i++) {
+					if(IsClientInGame(i) && (time-g_fLastAction[i] >= g_iSecGone[client]) && !CheckCommandAccess(i, "sm_afkmenu", ADMFLAG_KICK)) {
+						PunishPlayer(i, iInfo);
+					}
 				}
 			}
 		}
@@ -267,14 +289,35 @@ public Menu_Punish(Handle:main, MenuAction:action, client, param2) {
 	return;
 }
 
+PunishPlayer(client, type) {
+	switch(type) {
+		case AFK_SPEC: {
+			ChangeClientTeam(client, 1);
+		}
+		case AFK_KICK: {
+			KickClient(client, "AFK For Too Long");
+		}
+		case AFK_WARN: {
+			if(!g_bWarningPlayer[client]) {
+				g_bWarningPlayer[client] = true;
+				g_tWarningPlayer[client] = GetEngineTime();
+				CreateTimer(2.0, Timer_WarnRepeat, GetClientUserId(client), TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);
+				PrintToChat(client, "[AFK] You have been marked as AFK, type !unafk in chat to continue playing.");
+			}
+		}
+	}
+}
+
 public Action:Timer_WarnRepeat(Handle:timer, any:data) {
 	new client = GetClientOfUserId(data);
 	if(!g_bWarningPlayer[client]) {
 		return Plugin_Stop;
 	}
-	time = RoundToNearest(GetEngineTime() - g_tWarningPlayer[client]);
-	if(time >= 360) {
-	
+	if(GetEngineTime() - g_tWarningPlayer[client] >= WARNTIME) {
+		PunishPlayer(client, AFK_KICK);
+		return Plugin_Stop;
+	}
+	PrintToChat(client, "[AFK] You have been marked as AFK, type !unafk in chat to continue playing.");
 	return Plugin_Continue;
 }
 
@@ -290,12 +333,10 @@ stock FindUser(Float:time) {
 }
 
 stock GetTimeFromStamp(timestamp, String:TimeStamp[], size) {
-	new Hours = (timestamp / 60 / 60) % 24;
-	new Mins = (timestamp / 60) % 60;
+	new Hours = (timestamp/60/60) % 24;
+	new Mins = (timestamp/60) % 60;
 	new Secs = timestamp % 60;
 	new String:sHours[8];
-	Format(sHours, 8, "%2d:", Hours);
-	Format(TimeStamp, size, "[%s%02d:%02d]", 
-		(Hours != 0) ? sHours : "",
-		Mins, Secs);
+	if(Hours != 0) Format(sHours, 8, "%2d:", Hours);
+	Format(TimeStamp, size, "[%s%02d:%02d]", sHours, Mins, Secs);
 }
