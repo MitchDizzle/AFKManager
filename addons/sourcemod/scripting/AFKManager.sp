@@ -16,6 +16,7 @@ new bool:g_bLastAction[MAXPLAYERS+1] = {false, ...}; //Used in menu sorting.
 new g_iSecGone[MAXPLAYERS+1] = {DEFAFKTIME, ...};
 new SortOrder:g_SortOrder[MAXPLAYERS+1] = {Sort_Ascending, ...};
 new g_targetPlayer[MAXPLAYERS+1] = {-1, ...};
+new bool:g_bWarningPlayer[MAXPLAYERS+1] = {false, ...}; //Used in menu sorting.
 
 // ====[ PLUGIN ]==============================================================
 public Plugin:myinfo = {
@@ -30,6 +31,20 @@ public OnPluginStart() {
 	CreateConVar("sm_afkmanager_version", PLUGIN_VERSION, PLUGIN_NAME, FCVAR_PLUGIN | FCVAR_SPONLY | FCVAR_DONTRECORD | FCVAR_NOTIFY);
 	AddCommandListener(CommandListener);
 	RegAdminCmd("sm_afkmenu", Cmd_AFKMenu, ADMFLAG_KICK);
+	new Float:eTime = GetEngineTime();
+	for(new i=1; i<=MaxClients; i++) {
+		if(IsClientInGame(i)) {
+			g_fLastAction[client] = eTime;
+		}
+	}
+}
+
+public OnMapEnd() {
+	for(new i=1; i<=MaxClients; i++) {
+		if(IsClientInGame(i)) {
+			g_bWarningPlayer[i] = false;
+		}
+	}
 }
 
 public OnClientDisconnect(client) {
@@ -39,9 +54,10 @@ public OnClientDisconnect(client) {
 	g_targetPlayer[client] = -1;
 }
 
+
 public Action:CommandListener(client, const String:cmd[], args) {
 	if(StrContains(cmd, "say", false) != -1 ) {
-		g_fLastAction[client] = GetEngineTime(); //Need to add some kind of list of commands that are ignored or something.
+		g_fLastAction[client] = GetEngineTime();
 	}
 	/*if(!StrEqual(cmd, "wait", false) &&
 		StrContains(cmd, "+", false) == -1 &&
@@ -71,7 +87,7 @@ CreateAFKMenu(client) {
 	decl String:tempFormat[64];
 	new Handle:menu = CreateMenu(Menu_Main, MENU_ACTIONS_DEFAULT);
 	SetMenuTitle(menu, "AFK Manager | Main Menu:");
-	AddMenuItem(menu, "show", "Show AFK Players\n ");
+	AddMenuItem(menu, "show", "Show AFK Players\n \nOptions:");
 
 	GetTimeFromStamp(g_iSecGone[client], tempFormat, sizeof(tempFormat));
 	Format(tempFormat, sizeof(tempFormat), "Change AFK Time %s", tempFormat);
@@ -155,6 +171,7 @@ CreatePlayerMenu(client) {
 	SetMenuTitle(menu, "AFK Manager | Players:");
 	
 	AddMenuItem(menu, "refresh", "Refresh Menu");
+	AddMenuItem(menu, "all", "All AFKers\n-----------");
 	new Float:tempActionVar[MAXPLAYERS+1];
 	for(new i = 0; i <= MAXPLAYERS; i++) {
 		g_bLastAction[i] = false;
@@ -191,6 +208,9 @@ public Menu_Players(Handle:main, MenuAction:action, client, param2) {
 			GetMenuItem(main, param2, info, sizeof(info));
 			if(StrEqual(info, "refresh", false)) {
 				CreatePlayerMenu(client);
+			} else if(StrEqual(info, "all", false)) {
+				g_targetPlayer[client] = 1337;
+				CreatePunishMenu(client);
 			} else {
 				new target = GetClientOfUserId(StringToInt(info));
 				if(target) {
@@ -210,6 +230,7 @@ CreatePunishMenu(client) {
 	GetTimeFromStamp(g_iSecGone[client], tempFormat, sizeof(tempFormat));
 	new Handle:menu = CreateMenu(Menu_Punish, MENU_ACTIONS_DEFAULT);
 	SetMenuTitle(menu, "AFK Manager | Punish: %N", GetClientOfUserId(g_targetPlayer[client]));
+	AddMenuItem(menu, "warn", "Warn Player", (g_bWarningPlayer[target]) ? ITEMDRAW_DISABLED : ITEMDRAW_DEFAULT);
 	AddMenuItem(menu, "spec", "Move To Spectator");
 	AddMenuItem(menu, "kick", "Kick Player");
 
@@ -234,11 +255,27 @@ public Menu_Punish(Handle:main, MenuAction:action, client, param2) {
 					ChangeClientTeam(target, 1);
 				} else if (StrEqual(info,"kick")) {
 					KickClient(target, "AFK For Too Long");
+				} else if (StrEqual(info,"warn")) {
+					g_bWarningPlayer[target] = true;
+					g_tWarningPlayer[target] = GetEngineTime();
+					CreateTimer(2.0, Timer_WarnRepeat, StringToInt(info), TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);
+					PrintToChat(target, "[AFK] You have been marked as AFK, type !unafk in chat to continue playing.");
 				}
 			}
 		}
 	}
 	return;
+}
+
+public Action:Timer_WarnRepeat(Handle:timer, any:data) {
+	new client = GetClientOfUserId(data);
+	if(!g_bWarningPlayer[client]) {
+		return Plugin_Stop;
+	}
+	time = RoundToNearest(GetEngineTime() - g_tWarningPlayer[client]);
+	if(time >= 360) {
+	
+	return Plugin_Continue;
 }
 
 // ====[ STOCKS ]==============================================================
