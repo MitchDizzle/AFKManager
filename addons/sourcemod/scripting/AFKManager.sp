@@ -5,9 +5,9 @@
 
 // ====[ DEFINES ]=============================================================
 #define PLUGIN_NAME "AFKManager"
-#define PLUGIN_VERSION "1.0.0"
+#define PLUGIN_VERSION "1.0.2"
 #define DEFAFKTIME 60
-#define WARNTIME 300.0
+#define WARNTIME 150.0 //2.5 minutes
 
 // ====[ CONFIG ]==============================================================
 
@@ -24,7 +24,6 @@ new g_targetPlayer[MAXPLAYERS+1] = {-1, ...};
 new bool:g_bWarningPlayer[MAXPLAYERS+1] = {false, ...}; //Used in menu sorting.
 new Float:g_tWarningPlayer[MAXPLAYERS+1] = {0.0, ...};
 
-
 // ====[ PLUGIN ]==============================================================
 public Plugin:myinfo = {
 	name = PLUGIN_NAME,
@@ -38,6 +37,7 @@ public OnPluginStart() {
 	CreateConVar("sm_afkmanager_version", PLUGIN_VERSION, PLUGIN_NAME, FCVAR_PLUGIN | FCVAR_SPONLY | FCVAR_DONTRECORD | FCVAR_NOTIFY);
 	AddCommandListener(CommandListener);
 	RegAdminCmd("sm_afkmenu", Cmd_AFKMenu, ADMFLAG_KICK);
+	RegAdminCmd("sm_warntest", Cmd_WarnTest, ADMFLAG_KICK);
 
 	new Float:eTime = GetEngineTime();
 	for(new i=1; i<=MaxClients; i++) {
@@ -56,13 +56,20 @@ public OnMapEnd() {
 }
 
 public OnClientDisconnect(client) {
-	g_fLastAction[client] = 0.0;
+	DefPlayer(client);
+}
+
+public OnClientPutInServer(client) {
+	DefPlayer(client);
+}
+
+DefPlayer(client) {
+	g_fLastAction[client] = GetEngineTime();
 	g_iSecGone[client] = DEFAFKTIME;
 	g_SortOrder[client] = Sort_Ascending;
 	g_targetPlayer[client] = -1;
 	g_bWarningPlayer[client] = false;
 }
-
 
 public Action:CommandListener(client, const String:cmd[], args) {
 	if(StrContains(cmd, "say", false) != -1 ) {
@@ -98,6 +105,10 @@ public Action:Cmd_AFKMenu(client, args) {
 	}
 	return Plugin_Handled;
 }
+public Action:Cmd_WarnTest(client, args) {
+	PunishPlayer(client, 0);
+	return Plugin_Handled;
+}
 
 // ====[ MENUS ]==============================================================
 CreateAFKMenu(client) {
@@ -115,8 +126,7 @@ CreateAFKMenu(client) {
 
 	SetMenuPagination(menu, MENU_NO_PAGINATION);
 	SetMenuExitButton(menu, true);
-	SetMenuExitBackButton(menu, true);
-	DisplayMenuAtItem(menu, client, 0, MENU_TIME_FOREVER);
+	DisplayMenu(menu, client, MENU_TIME_FOREVER);
 }
 
 public Menu_Main(Handle:main, MenuAction:action, client, param2) {
@@ -145,7 +155,6 @@ CreateAFKTimeMenu(client) {
 	GetTimeFromStamp(g_iSecGone[client], tempFormat, sizeof(tempFormat));
 	new Handle:menu = CreateMenu(Menu_AFKTime, MENU_ACTIONS_DEFAULT);
 	SetMenuTitle(menu, "AFK Manager | AFK Time: %s", tempFormat);
-	AddMenuItem(menu, "+30", "+30 Seconds");
 	AddMenuItem(menu, "+5", "+5 Seconds");
 	AddMenuItem(menu, "+1", "+1 Seconds");
 	AddMenuItem(menu, "0", "Default 60 Seconds");
@@ -153,18 +162,21 @@ CreateAFKTimeMenu(client) {
 	AddMenuItem(menu, "-5", "-5 Seconds");
 	AddMenuItem(menu, "-30", "-30 Seconds");
 
-	SetMenuPagination(menu, MENU_NO_PAGINATION);
+	//SetMenuPagination(menu, MENU_NO_PAGINATION);
 	SetMenuExitButton(menu, true);
 	SetMenuExitBackButton(menu, true);
-	DisplayMenuAtItem(menu, client, 0, MENU_TIME_FOREVER);
+	DisplayMenu(menu, client, MENU_TIME_FOREVER);
 }
 
 public Menu_AFKTime(Handle:main, MenuAction:action, client, param2) {
 	switch (action) {
 		case MenuAction_End:
 			CloseHandle(main);
-		case MenuAction_Cancel:
-			CreateAFKMenu(client);
+		case MenuAction_Cancel: {
+			if(param2 == MenuCancel_ExitBack) {
+				CreateAFKMenu(client);
+			}
+		}
 		case MenuAction_Select:
 		{
 			new String:info[32];
@@ -198,7 +210,7 @@ CreatePlayerMenu(client) {
 	new x, time, String:sUserid[5], String:tempFormat[128], players;
 	for(new i = 0; i < MAXPLAYERS; i++) {
 		x = FindUser(tempActionVar[i]);
-		if(x && IsClientInGame(x) && !CheckCommandAccess(x, "sm_afkmenu", ADMFLAG_KICK)) {
+		if(x && IsClientInGame(x)) {// && !CheckCommandAccess(x, "sm_afkmenu", ADMFLAG_KICK)) {
 			time = RoundToNearest(GetEngineTime() - g_fLastAction[x]);
 			if(time >= g_iSecGone[client]) {
 				GetTimeFromStamp(time, tempFormat, sizeof(tempFormat));
@@ -211,15 +223,18 @@ CreatePlayerMenu(client) {
 	}
 	SetMenuExitButton(menu, true);
 	SetMenuExitBackButton(menu, true);
-	DisplayMenuAtItem(menu, client, 0, MENU_TIME_FOREVER);
+	DisplayMenu(menu, client, MENU_TIME_FOREVER);
 }
 
 public Menu_Players(Handle:main, MenuAction:action, client, param2) {
 	switch (action) {
 		case MenuAction_End:
 			CloseHandle(main);
-		case MenuAction_Cancel:
-			CreateAFKMenu(client);
+		case MenuAction_Cancel: {
+			if(param2 == MenuCancel_ExitBack) {
+				CreateAFKMenu(client);
+			}
+		}
 		case MenuAction_Select: {
 			new String:info[32];
 			GetMenuItem(main, param2, info, sizeof(info));
@@ -252,24 +267,25 @@ CreatePunishMenu(client) {
 	
 	new target = GetClientOfUserId(g_targetPlayer[client]);
 	if(g_targetPlayer[client] == 1337) SetMenuTitle(menu, "AFK Manager | Punish All AFKers");
-	else SetMenuTitle(menu, "AFK Manager | Punish: %N", target);
+	else SetMenuTitle(menu, "AFK Manager \nPunish: %N", target);
 	AddMenuItem(menu, "0", "Warn Player", (g_bWarningPlayer[target] && g_targetPlayer[client] != 1337) ? ITEMDRAW_DISABLED : ITEMDRAW_DEFAULT);
 	AddMenuItem(menu, "1", "Move To Spectator");
 	AddMenuItem(menu, "2", "Kick Player");
-
-	SetMenuPagination(menu, MENU_NO_PAGINATION);
 	SetMenuExitButton(menu, true);
-	DisplayMenuAtItem(menu, client, 0, MENU_TIME_FOREVER);
+	SetMenuExitBackButton(menu, true);
+	DisplayMenu(menu, client, MENU_TIME_FOREVER);
 }
 
 public Menu_Punish(Handle:main, MenuAction:action, client, param2) {
 	switch (action) {
 		case MenuAction_End:
 			CloseHandle(main);
-		case MenuAction_Cancel:
-			CreateAFKMenu(client);
-		case MenuAction_Select:
-		{
+		case MenuAction_Cancel: {
+			if(param2 == MenuCancel_ExitBack) {
+				CreateAFKMenu(client);
+			}
+		}
+		case MenuAction_Select: {
 			new String:info[32];
 			GetMenuItem(main, param2, info, sizeof(info));
 			new iInfo = StringToInt(info);
