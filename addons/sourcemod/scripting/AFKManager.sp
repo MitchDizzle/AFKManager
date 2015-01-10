@@ -2,12 +2,14 @@
 
 // ====[ INCLUDES ]============================================================
 #include <sdkhooks>
+#undef REQUIRE_PLUGIN
+#include <adminmenu>
 
 // ====[ DEFINES ]=============================================================
 #define PLUGIN_NAME "AFKManager"
-#define PLUGIN_VERSION "1.0.2"
-#define DEFAFKTIME 60
-#define WARNTIME 150.0 //2.5 minutes
+#define PLUGIN_VERSION "1.1.2"
+#define DEFAFKTIME 120
+#define WARNTIME 60.0 //1.0 minutes
 
 // ====[ CONFIG ]==============================================================
 
@@ -23,6 +25,11 @@ new g_targetPlayer[MAXPLAYERS+1] = {-1, ...};
 // Used for the Warn System
 new bool:g_bWarningPlayer[MAXPLAYERS+1] = {false, ...}; //Used in menu sorting.
 new Float:g_tWarningPlayer[MAXPLAYERS+1] = {0.0, ...};
+
+// ====[ GAME VARS ]===========================================================
+new Handle:hTopMenu = INVALID_HANDLE;
+//Message Prefix
+new String:gamePrefix[16];
 
 // ====[ PLUGIN ]==============================================================
 public Plugin:myinfo = {
@@ -44,6 +51,25 @@ public OnPluginStart() {
 		if(IsClientInGame(i)) {
 			g_fLastAction[i] = eTime;
 		}
+	}
+
+	if(GetEngineVersion() == Engine_CSGO) {
+		Format(gamePrefix, sizeof(gamePrefix), "'\x10[\x09AFK\x10]\x01");
+	} else {
+		Format(gamePrefix, sizeof(gamePrefix), "\x07d35400[\x07e67e22AFK\x07d35400]\x01");
+	}
+
+	new Handle:topmenu;
+	if (LibraryExists("adminmenu") && ((topmenu = GetAdminTopMenu()) != INVALID_HANDLE)) {
+		OnAdminMenuReady(topmenu);
+	}
+}
+
+public OnLibraryRemoved(const String:name[])
+{
+	if (strcmp(name, "adminmenu") == 0)
+	{
+		hTopMenu = INVALID_HANDLE;
 	}
 }
 
@@ -72,7 +98,8 @@ DefPlayer(client) {
 }
 
 public Action:CommandListener(client, const String:cmd[], args) {
-	if(StrContains(cmd, "say", false) != -1 ) {
+	if(StrContains(cmd, "say", false) != -1
+	|| StrContains(cmd, "sm_", false) != -1) {
 		PlayerActioned(client);
 	}
 	/*if(!StrEqual(cmd, "wait", false) &&
@@ -95,7 +122,7 @@ PlayerActioned(client) {
 	g_fLastAction[client] = GetEngineTime();
 	if(g_bWarningPlayer[client]) {
 		g_bWarningPlayer[client] = false;
-		PrintToChat(client, "[AFK] You are no longer marked as afk.");
+		PrintToChat(client, "%s You are no longer marked as afk.", gamePrefix);
 	}
 }
 // ====[ COMMANDS ]==============================================================
@@ -106,11 +133,31 @@ public Action:Cmd_AFKMenu(client, args) {
 	return Plugin_Handled;
 }
 public Action:Cmd_WarnTest(client, args) {
-	PunishPlayer(client, 0);
+	PunishPlayer(client, 0, client);
 	return Plugin_Handled;
 }
 
 // ====[ MENUS ]==============================================================
+public OnAdminMenuReady(Handle:topmenu) {
+	if (topmenu == hTopMenu) {
+		return;
+	}
+	hTopMenu = topmenu;
+	new TopMenuObject:player_commands = FindTopMenuCategory(hTopMenu, ADMINMENU_PLAYERCOMMANDS);
+	if (player_commands != INVALID_TOPMENUOBJECT) {
+		AddToTopMenu(hTopMenu, "AFKMenu", TopMenuObject_Item, AdminMenu_ShowAFKMenu, player_commands, "sm_afkmenu", ADMFLAG_KICK);
+	}
+}
+
+public AdminMenu_ShowAFKMenu(Handle:topmenu, TopMenuAction:action, TopMenuObject:object_id, client, String:buffer[], maxlength) {
+	if (action == TopMenuAction_DisplayOption) {
+		Format(buffer, maxlength, "AFK Manager");
+	}
+	if (action == TopMenuAction_SelectOption) {
+		CreateAFKMenu(client);
+	}
+}
+
 CreateAFKMenu(client) {
 	decl String:tempFormat[64];
 	new Handle:menu = CreateMenu(Menu_Main, MENU_ACTIONS_DEFAULT);
@@ -291,7 +338,7 @@ public Menu_Punish(Handle:main, MenuAction:action, client, param2) {
 			new iInfo = StringToInt(info);
 			new target = GetClientOfUserId(g_targetPlayer[client]);
 			if(target) {
-				PunishPlayer(target, iInfo);
+				PunishPlayer(target, iInfo, client);
 			} else if(g_targetPlayer[client] == 1337) {
 				new Float:time = GetEngineTime();
 				for(new i=1; i<=MaxClients; i++) {
@@ -299,26 +346,27 @@ public Menu_Punish(Handle:main, MenuAction:action, client, param2) {
 						PunishPlayer(i, iInfo);
 					}
 				}
+				if(iInfo == 0) PrintToChat(client, "%s All AFK players will be kicked in %.0f seconds.", gamePrefix, WARNTIME);
 			}
 		}
 	}
 	return;
 }
 
-PunishPlayer(client, type) {
+PunishPlayer(client, type, inflictor=0) {
 	switch(type) {
 		case AFK_SPEC: {
 			ChangeClientTeam(client, 1);
 		}
 		case AFK_KICK: {
-			KickClient(client, "AFK For Too Long");
+			KickClient(client, "You were kicked for being AFK. Type retry in console to rejoin");
 		}
 		case AFK_WARN: {
 			if(!g_bWarningPlayer[client]) {
 				g_bWarningPlayer[client] = true;
 				g_tWarningPlayer[client] = GetEngineTime();
 				CreateTimer(2.0, Timer_WarnRepeat, GetClientUserId(client), TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);
-				PrintToChat(client, "[AFK] You have been marked as AFK, type !unafk in chat to continue playing.");
+				if(inflictor != 0) PrintToChat(inflictor, "%s %N will be kicked in %.0f seconds.", gamePrefix, client, WARNTIME);
 			}
 		}
 	}
@@ -333,7 +381,7 @@ public Action:Timer_WarnRepeat(Handle:timer, any:data) {
 		PunishPlayer(client, AFK_KICK);
 		return Plugin_Stop;
 	}
-	PrintToChat(client, "[AFK] You have been marked as AFK, type !unafk in chat to continue playing.");
+	PrintToChat(client, "%s Move, shoot or type in chat or you will be kicked from the server.", gamePrefix);
 	return Plugin_Continue;
 }
 
