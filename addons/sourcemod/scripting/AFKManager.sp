@@ -7,7 +7,7 @@
 
 // ====[ DEFINES ]=============================================================
 #define PLUGIN_NAME "AFKManager"
-#define PLUGIN_VERSION "1.1.2"
+#define PLUGIN_VERSION "1.1.3"
 #define DEFAFKTIME 120
 #define WARNTIME 60.0 //1.0 minutes
 
@@ -29,7 +29,7 @@ new Float:g_tWarningPlayer[MAXPLAYERS+1] = {0.0, ...};
 // ====[ GAME VARS ]===========================================================
 new Handle:hTopMenu = INVALID_HANDLE;
 //Message Prefix
-new String:gamePrefix[16];
+new String:gamePrefix[64];
 
 // ====[ PLUGIN ]==============================================================
 public Plugin:myinfo = {
@@ -204,7 +204,8 @@ CreateAFKTimeMenu(client) {
 	SetMenuTitle(menu, "AFK Manager | AFK Time: %s", tempFormat);
 	AddMenuItem(menu, "+5", "+5 Seconds");
 	AddMenuItem(menu, "+1", "+1 Seconds");
-	AddMenuItem(menu, "0", "Default 60 Seconds");
+	Format(tempFormat, sizeof(tempFormat), "Default %i Seconds", DEFAFKTIME);
+	AddMenuItem(menu, "0", tempFormat);
 	AddMenuItem(menu, "-1", "-1 Seconds");
 	AddMenuItem(menu, "-5", "-5 Seconds");
 	AddMenuItem(menu, "-30", "-30 Seconds");
