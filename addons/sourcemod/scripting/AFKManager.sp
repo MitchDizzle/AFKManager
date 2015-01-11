@@ -99,7 +99,8 @@ DefPlayer(client) {
 
 public Action:CommandListener(client, const String:cmd[], args) {
 	if(StrContains(cmd, "say", false) != -1
-	|| StrContains(cmd, "sm_", false) != -1) {
+	|| StrContains(cmd, "sm_", false) != -1
+	|| StrContains(cmd, "spec_", false) != -1) {
 		PlayerActioned(client);
 	}
 	/*if(!StrEqual(cmd, "wait", false) &&
