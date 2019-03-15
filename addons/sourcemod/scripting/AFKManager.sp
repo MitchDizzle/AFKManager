@@ -5,7 +5,7 @@
 #include <adminmenu>
 
 #define PLUGIN_NAME "AFKManager"
-#define PLUGIN_VERSION "1.2.4"
+#define PLUGIN_VERSION "1.2.5"
 #define DEFAFKTIME 120
 #define AFKLOGFILE "logs/afklogs.txt"
 
@@ -55,7 +55,7 @@ public void OnPluginStart() {
     CreateConVar("sm_afkmanager_version", PLUGIN_VERSION, PLUGIN_NAME, FCVAR_SPONLY | FCVAR_DONTRECORD | FCVAR_NOTIFY);
     
     cWarnTime = CreateConVar("sm_afkmanager_warntime", "60.0", "Time after being warned which the player will be kicked.");
-    cAutoCheck = CreateConVar("sm_afkmanager_autocheck", "1", "Enables the afk check automation");
+    cAutoCheck = CreateConVar("sm_afkmanager_autocheck", "0", "Enables the afk check automation");
     cAutoMethod = CreateConVar("sm_afkmanager_automethod", "0", "0, move to spectate, 1, kick instantly");
     cAutoWarnTime = CreateConVar("sm_afkmanager_autowarntime", "300.0", "Time (seconds) after the user's last input to warn them about being afk.");
     cAutoEnactTime = CreateConVar("sm_afkmanager_autoenacttime", "420.0", "Time (seconds) after the user's last input to punish the player.");
