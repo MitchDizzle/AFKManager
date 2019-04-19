@@ -5,7 +5,7 @@
 #include <adminmenu>
 
 #define PLUGIN_NAME "AFKManager"
-#define PLUGIN_VERSION "1.2.5"
+#define PLUGIN_VERSION "1.2.6"
 #define DEFAFKTIME 120
 #define AFKLOGFILE "logs/afklogs.txt"
 
@@ -510,4 +510,44 @@ stock GetTimeFromStamp(int timestamp, char[] TimeStamp, int size) {
         Format(sHours, 8, "%2d:", Hours);
     }
     Format(TimeStamp, size, "[%s%02d:%02d]", sHours, Mins, Secs);
+}
+
+// Native Stuff
+public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max) {
+    CreateNative("AFKManager_IsAFK", Native_IsAFK);
+    CreateNative("AFKManager_GetLastAction", Native_GetLastAction);
+    RegPluginLibrary("AFKManager");
+    return APLRes_Success;
+}
+
+public int Native_IsAFK(Handle plugin, int args) {
+    int client = GetNativeCell(1);
+    if(client <= 0 || client > MaxClients) {
+        ThrowNativeError(SP_ERROR_NATIVE, "Client index %i is invalid", client);
+        return false;
+    }
+    if(!IsClientInGame(client)) {
+        ThrowNativeError(SP_ERROR_NATIVE, "Client %i is not in game", client);
+        return false;
+    }
+    float time = view_as<float>(GetNativeCell(2));
+    if(time == -1.0) {
+        time = float(DEFAFKTIME);
+    } else if(time == -2.0) {
+        time = cAutoWarnTime.FloatValue;
+    }
+    return (GetEngineTime() - g_fLastAction[client]) > time;
+}
+
+public int Native_GetLastAction(Handle plugin, int args) {
+    int client = GetNativeCell(1);
+    if(client <= 0 || client > MaxClients) {
+        ThrowNativeError(SP_ERROR_NATIVE, "Client index %i is invalid", client);
+        return false;
+    }
+    if(!IsClientInGame(client)) {
+        ThrowNativeError(SP_ERROR_NATIVE, "Client %i is not in game", client);
+        return false;
+    }
+    return view_as<int>(g_fLastAction[client]);
 }
