@@ -141,9 +141,10 @@ public void DefPlayer(int client) {
 }
 
 public Action CommandListener(int client, const char[] cmd, int args) {
-    if(StrContains(cmd, "say", false) != -1
+    if(client > -1 && IsClientInGame(client) && 
+      (StrContains(cmd, "say", false) != -1
     || StrContains(cmd, "sm_", false) != -1
-    || StrContains(cmd, "spec_", false) != -1) {
+    || StrContains(cmd, "spec_", false) != -1)) {
         PlayerActioned(client);
     }
     return Plugin_Continue;
